@@ -1,0 +1,125 @@
+name: Modelling in Excel
+description: GIS Embedded in Excel
+host: EXCEL
+api_set: {}
+script:
+    content: |-
+        MakeMap()
+
+        var data = {}
+
+        function getColor(system) {
+            if (/foul/i.test(system)) return "red"
+            if (/storm/i.test(system)) return "blue"
+            if (/combined/i.test(system)) return "green"
+        }
+
+        async function MakeMap() {
+            var map = L.map('mapid').setView([51.505, -0.09], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy;<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            var nodes = await getData("Nodes");
+            var links = await getData("Links");
+            var markers = [];
+            var Link_Bindings = {};
+            nodes.forEach((row) => {
+                var marker = L.circleMarker([row["Lat"], row["Long"]], { color: getColor(row["System"]),radius:3}).addTo(map);
+                marker.title = row["Node_ID"];
+                marker.bindTooltip(marker.title);
+                markers.push(marker);
+
+                //Bindings for links
+                Link_Bindings[row["Node_ID"]] = [row["Lat"], row["Long"]]
+            });
+            links.forEach((row) => {
+                var polyline = L.polyline([Link_Bindings[row["US_Node_ID"]], Link_Bindings[row["DS_Node_ID"]]],{color: getColor(row["System"])}).addTo(map)
+            })
+            var group = new L.featureGroup(markers)
+            map.fitBounds(group.getBounds());
+        }
+
+
+        async function getData(tableName) {
+            return await Excel.run(async (context) => {
+                const pointsTab = context.workbook.tables.getItem(tableName);
+                const headers = pointsTab.getHeaderRowRange().load("values");
+                const points = pointsTab.getDataBodyRange().load("values");
+                const headersAdd = pointsTab.getHeaderRowRange().load("address");
+                await context.sync();
+                const rows = points.values.map(function (row) {
+                    var newRow = {};
+                    for (var i = 0; i < row.length; i++) {
+                        newRow[headers.values[0][i]] = row[i];
+                    }
+                    return newRow;
+                })
+                pointsTab.onChanged.add((event)=>{
+                    return Excel.run(function(context){ 
+                        return context.sync()
+                            .then(function () {
+                                //event, context, this
+                                //console.log(event, context, this)
+                                var rootData  = headersAdd.address.match(/\!([A-Z]+)(\d+)/)
+                                var rootCol   = getColumnIndex(rootData[1])
+                                var rootRow   = parseInt(rootData[2])
+                                var eventData = event.address.match(/([A-Z]+)(\d+)/)
+                                var eventCol  = getColumnIndex(eventData[1])
+                                var eventRow  = parseInt(eventData[2])
+                                var colName   = headers.values[0][eventCol - rootCol]
+                                console.log(rootData,eventData)
+                                console.log(rootCol,rootRow,eventCol,eventRow)
+                                console.log(colName)
+                                event["colName"] = colName;
+                                event["colNum"] = eventCol - rootCol;
+                                console.log(event)
+                            })
+                    }).catch(function () {
+                        //...
+                    })
+                })
+                return rows;
+            });
+        }
+
+
+
+        function getColumnIndex(address) {
+            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            var arr = address.split("")
+            var sum = 0
+            arr.forEach((char, index) => {
+                var i = arr.length - index - 1
+                sum = sum + (alphabet.indexOf(char) + 1) * Math.pow(alphabet.length, i)
+            })
+            return sum
+        }
+    language: typescript
+template:
+    content: |-
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA=="
+         crossorigin="" />
+        <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA=="
+         crossorigin=""></script>
+        <div id="mapid"></div>
+    language: html
+style:
+    content: |
+        html, body {width:100%;height:100%;margin:0;}
+        #mapid { width:100%;height: 100%; }
+    language: css
+libraries: |
+    https://appsforoffice.microsoft.com/lib/1/hosted/office.js
+    @types/office-js
+
+    office-ui-fabric-js@1.4.0/dist/css/fabric.min.css
+    office-ui-fabric-js@1.4.0/dist/css/fabric.components.min.css
+
+    core-js@2.4.1/client/core.min.js
+    @types/core-js
+
+    @microsoft/office-js-helpers@0.7.4/dist/office.helpers.min.js
+    @microsoft/office-js-helpers@0.7.4/dist/office.helpers.d.ts
+
+    jquery@3.1.1
+    @types/jquery
